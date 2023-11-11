@@ -13,7 +13,7 @@ startup: application              # When the add-on should start.
 boot: auto                        # Boot options, auto or manual.
 options:                          # Default options value for the add-on.
   inverter_host: ''
-  mqtt_broker_host: ''
+  mqtt_broker_host: 'core-mosquitto'
   mqtt_username: ''
   mqtt_password: ''
   mqtt_port: 1883

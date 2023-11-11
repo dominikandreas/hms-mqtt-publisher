@@ -3,70 +3,93 @@
 
 mod inverter;
 mod mqtt;
+mod homeassistant_api;
 mod protos;
+mod logging;
 
 use crate::inverter::Inverter;
 use crate::mqtt::{MetricCollector, Mqtt};
+use crate::homeassistant_api::publish_sensor_readings;
 
-use std::io::Write;
 use std::thread;
 use std::time::Duration;
+use log::info;
 
-use chrono::Local;
-use clap::Parser;
-use env_logger::Builder;
-use log::{info, LevelFilter};
+use clap::{Parser, Subcommand};
 use protos::hoymiles::RealData;
 
+
+#[derive(Subcommand)]
+enum Commands {
+    /// Publish to Home Assistant HTTP API
+    HomeAssistant {
+        url: String,
+        auth_token: String,
+    },
+
+    /// Publish to MQTT server
+    Mqtt {
+        mqtt_broker_host: String,
+        mqtt_username: Option<String>,
+        mqtt_password: Option<String>,
+        #[clap(default_value = "1883")]
+        mqtt_broker_port: u16,
+    },
+}
+
+// Command line interface
 #[derive(Parser)]
+#[clap(author, version, about, long_about = None)]
 struct Cli {
     inverter_host: String,
-    mqtt_broker_host: String,
-    mqtt_username: Option<String>,
-    mqtt_password: Option<String>,
-    #[clap(default_value = "1883")]
-    mqtt_broker_port: u16,
+
+    #[clap(subcommand)]
+    command: Commands,
 }
 
 static REQUEST_DELAY: u64 = 30_500;
 
-fn main() {
-    Builder::new()
-        .format(|buf, record| {
-            writeln!(
-                buf,
-                "{} [{}] - {}",
-                Local::now().format("%Y-%m-%dT%H:%M:%S"),
-                record.level(),
-                record.args()
-            )
-        })
-        .filter(None, LevelFilter::Info)
-        .init();
+async fn run() {
+    logging::init_logger();
 
     let cli = Cli::parse();
-
-    // set up mqtt connection
-    info!(
-        "inverter: {}, mqtt broker {}",
-        cli.inverter_host, cli.mqtt_broker_host
-    );
-
     let mut inverter = Inverter::new(&cli.inverter_host);
 
-    let mut mqtt = Mqtt::new(
-        &cli.mqtt_broker_host,
-        &cli.mqtt_username,
-        &cli.mqtt_password,
-        cli.mqtt_broker_port,
-    );
+    info!("Inverter host: {}", cli.inverter_host);
 
-    loop {
-        if let Some(r) = inverter.update_state() {
-            mqtt.publish(&r);
+    match cli.command {
+        Commands::HomeAssistant { url, auth_token } => {
+            info!("Home Assistant: {}", url);
+            info!("Bearer token: {}", auth_token);
+            loop {
+                if let Some(hms_state) = inverter.update_state() {
+                    publish_sensor_readings(&hms_state, &url, &auth_token).await.unwrap();
+                    thread::sleep(Duration::from_millis(REQUEST_DELAY));
+                }
+            }
+        },
+        Commands::Mqtt { mqtt_broker_host, mqtt_username, mqtt_password, mqtt_broker_port } => {
+            info!("MQTT broker: {}", mqtt_broker_host);
+
+            let mut mqtt = Mqtt::new(
+                &mqtt_broker_host, 
+                &mqtt_username.clone(),
+                &mqtt_password.clone(),
+                mqtt_broker_port
+            );
+                
+            loop {
+                if let Some(r) = inverter.update_state() {
+                    mqtt.publish(&r);
+                }
+                thread::sleep(Duration::from_millis(REQUEST_DELAY));
+            }
         }
-
-        // TODO: this has to move into the Inverter struct in an async implementation
-        thread::sleep(Duration::from_millis(REQUEST_DELAY));
     }
+    
+}
+
+#[tokio::main]
+async fn main() {
+    run().await;
 }

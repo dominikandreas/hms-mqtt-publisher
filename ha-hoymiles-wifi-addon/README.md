@@ -1,6 +1,6 @@
 # Home Assistant Add-on
 
-This tool can directly run inside Home Assistant OS as an addon. To get started, add the URL of this repository to the add-on store in Home Assistant and install the add-on. Alternatively, you can also run it stand-alone on any machine that supports rust or docker (see section below).
+This tool can directly run inside Home Assistant OS as an addon. To get started, add the URL of this repository to the add-on store in Home Assistant and install the add-on.
 
 ## Configuration
 
